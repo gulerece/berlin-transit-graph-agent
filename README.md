@@ -19,23 +19,30 @@ to no alternative.
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph Data["Data pipeline"]
+        direction LR
         A[DB XML snapshots<br/>timetables + 15-min changes] -->|stream from .tar.gz| B[ingest.py<br/>Parquet tables]
-        B --> C[graph_builder.py<br/>delays, gap repair,<br/>line patterns]
+        B --> C[graph_builder.py<br/>delays, gap repair, line patterns]
         C --> G[(Knowledge graph<br/>134 stations · 353 edges)]
     end
-    G --> T[tools.py<br/>state-expanded Dijkstra · isochrones<br/>centrality · closure what-if]
-    G --> K[knowledge.py · GraphRAG<br/>Louvain communities → summaries<br/>station + line profiles → retriever]
-    K --> T
-    T --> AG[LangGraph agent<br/>Ollama / OpenAI / Anthropic / offline]
-    T --> M[MCP server<br/>stdio · streamable HTTP]
-    T --> API[FastAPI<br/>/ask · /route · /network ...]
-    AG --> API
-    API --> W[Chat web page<br/>Leaflet network map]
-    AG --> E[Eval harness<br/>66 data-grounded cases]
+    subgraph Core["Graph intelligence"]
+        direction LR
+        K[knowledge.py · GraphRAG<br/>Louvain communities → summaries<br/>station + line profiles → retriever] --> T[tools.py<br/>state-expanded Dijkstra · isochrones<br/>centrality · closure what-if]
+    end
+    subgraph Serve["Agent and serving"]
+        direction LR
+        AG[LangGraph agent<br/>Ollama / OpenAI / Anthropic / offline] --> API[FastAPI<br/>/ask · /route · /network]
+        API --> W[Chat web page<br/>Leaflet network map]
+        M[MCP server<br/>stdio · streamable HTTP]
+        AG --> E[Eval harness<br/>66 data-grounded cases]
+    end
+    G --> K
+    G --> T
+    T --> AG
+    T --> M
+    T --> API
 ```
-
 ## What's inside
 
 | Layer | What it does | Notable details |
