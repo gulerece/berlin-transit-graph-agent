@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "berlin-transit-graph": {
+      "command": "transit-graph-mcp",
+      "env": { "TRANSIT_GRAPH_PATH": "/ABSOLUTE/PATH/TO/transit-graph-agent/data/graph.json.gz" }
+    }
+  }
+}

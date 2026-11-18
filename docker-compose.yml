@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      TRANSIT_LLM_PROVIDER: ${TRANSIT_LLM_PROVIDER:-offline}
+      TRANSIT_LLM_MODEL: ${TRANSIT_LLM_MODEL:-}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+  mcp:
+    build: .
+    command: ["transit-graph-mcp", "--http", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["8001:8001"]
+
+  # Optional local LLM: `docker compose --profile llm up`, then
+  # `docker compose exec ollama ollama pull qwen2.5:7b` and set TRANSIT_LLM_PROVIDER=ollama
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports: ["11434:11434"]
+    volumes: [ollama:/root/.ollama]
+
+volumes:
+  ollama:
