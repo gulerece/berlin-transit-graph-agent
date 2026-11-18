@@ -1,9 +1,11 @@
 # Berlin Transit Graph Agent
 
 **A GraphRAG agent over a delay-aware knowledge graph of Berlin's rail network.**
-Ask questions in plain English or German. A LangGraph agent answers them by calling graph-algorithm tools (routing, isochrones, centrality, what-if closures) and a GraphRAG retriever. The tools are also exposed as an **MCP server** and a **FastAPI** service.
+Ask questions in plain English or German. A LangGraph agent answers them by calling graph-algorithm tools (routing, isochrones, centrality, what-if closures) and a GraphRAG retriever, and the chat web page draws each answer on an interactive network map. The tools are also exposed as an **MCP server** and a **FastAPI** service.
 
 Built on **2.08 million real stop events** (DB Timetables API snapshots, 2 Sep – 15 Oct 2025, 134 stations, 76 lines) from the [DBahn-Berlin dataset](https://github.com/damslab/datasets/tree/master/DBahn-berlin). This is a follow-up to my [Berlin Public Transport Data Analysis](https://github.com/gulerece/Berlin-Public-Transport-Data-Analysis) project, which used the same data for SQL/Spark analytics and BFS/Dijkstra routing.
+
+![Chat page with a route drawn on the Berlin network map](docs/screenshot.png)
 
 ```
 > What happens if Ostkreuz is closed?
@@ -28,8 +30,9 @@ flowchart LR
     K --> T
     T --> AG[LangGraph agent<br/>Ollama / OpenAI / Anthropic / offline]
     T --> M[MCP server<br/>stdio · streamable HTTP]
-    T --> API[FastAPI<br/>/ask · /route · /hubs ...]
+    T --> API[FastAPI<br/>/ask · /route · /network ...]
     AG --> API
+    API --> W[Chat web page<br/>Leaflet network map]
     AG --> E[Eval harness<br/>66 data-grounded cases]
 ```
 
@@ -42,8 +45,9 @@ flowchart LR
 | **Graph tools** | `plan_route`, `reachable_within`, `hub_ranking`, `delay_hotspots`, `closure_impact`, `station_info`, `line_info`, `nearest_station` | Routing runs Dijkstra over **(station, line) states** so that changing lines costs a transfer penalty. `optimize="reliable"` adds observed delay gain plus cancellation risk to the edge weights. Closure analysis uses articulation points and re-routes affected journeys. |
 | **GraphRAG** | Louvain community detection, then templated community summaries ("global"), plus station and line profiles ("local") | Station hits are expanded with their community summary (graph-guided context expansion). Retrieval uses TF-IDF (offline, deterministic) or any LangChain `Embeddings`. |
 | **Agent** | LangGraph `StateGraph` with an agent ↔ ToolNode loop | Swappable LLM backend. Internal parameters are hidden from the LLM's tool schemas. The `offline` rule-based router is the baseline and runs in CI without API keys. |
-| **Serving** | FastAPI (`/ask`, `/route`, `/hubs`, ...) and an MCP server (stdio and HTTP) | Docker Compose with an optional Ollama container |
-| **Quality** | 31 pytest tests, ruff, GitHub Actions (tests, eval, Docker smoke test) | Synthetic XML fixture tests the delay and gap-repair logic exactly |
+| **Web page** | Chat interface with an interactive Leaflet map of the network | Draws routes, isochrones, closures, hubs and delay hotspots in the real S-Bahn line colours. Shows the journey legs as line badges, lists the tool calls behind each answer, and lets you click a station to ask about it. |
+| **Serving** | FastAPI (`/ask`, `/route`, `/hubs`, `/network`, ...) and an MCP server (stdio and HTTP) | Docker Compose with an optional Ollama container |
+| **Quality** | 32 pytest tests, ruff, GitHub Actions (tests, eval, Docker smoke test) | Synthetic XML fixture tests the delay and gap-repair logic exactly |
 
 ## Findings from the data (Sep–Oct 2025)
 
@@ -82,17 +86,23 @@ Per-case results are written to `evals/results/`.
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate   # Python ≥ 3.11
 pip install -e ".[dev,ollama]"
-pytest -q                             # 31 tests, uses the committed graph
+pytest -q                             # 32 tests, uses the committed graph
 
-# ask questions (offline baseline: no API key needed)
+# ask questions in the terminal (offline baseline: no API key needed)
 transit-graph ask "Most reliable way from Spandau to Grünau?" --trace
 
 # with a local LLM (free, runs on your machine)
 ollama pull llama3.1:8b
 transit-graph chat --provider ollama --model llama3.1:8b
 
-# REST API on :8000  (interactive docs at /docs)
+# chat web page + REST API on :8000  (API docs at /docs)
 uvicorn transit_graph.api:app --reload
+# then open http://localhost:8000
+
+# the same, answered by the LLM
+TRANSIT_LLM_PROVIDER=ollama TRANSIT_LLM_MODEL=llama3.1:8b uvicorn transit_graph.api:app --reload
+
+# REST example
 curl "localhost:8000/route?origin=Alex&destination=Wannsee&optimize=reliable"
 
 # everything in Docker
@@ -127,21 +137,24 @@ src/transit_graph/
   agent.py          LangGraph agent + LLM provider factory
   offline.py        rule-based tool-calling baseline model
   mcp_server.py     MCP server
-  api.py            FastAPI service
+  api.py            FastAPI service + /network endpoint for the map
+  static/           chat web page (index.html)
   evals.py          case generation + scoring
 evals/              benchmark runner, cases, results
 tests/              pytest suite (incl. synthetic XML fixture)
-docs/               design notes
+docs/               design notes, screenshot
 ```
 
 ## Limitations
 
 - Travel times are *planned* medians over the observation window, not a live timetable. Routing ignores departure times and waiting (unlike the earliest-arrival Dijkstra in the original project); a fixed transfer buffer (default 5 min) stands in for waiting.
-- The dataset covers DB stations only, so **U-Bahn, tram and bus are missing**. "No rail alternative" in closure analysis means no alternative within the S-Bahn/regional network.
+- The dataset covers DB stations only, so **U-Bahn, tram and bus are missing**, and lines end at the Berlin city border. "No rail alternative" in closure analysis means no alternative within the S-Bahn/regional network.
 - When a station has no change record, the train is assumed to be on time. This is how the DB API reports deviations, but it may undercount delays during data outages.
+- On the map, each stretch of shared track is drawn in one line's colour; hover it to see every line that uses it. Three stations rebuilt from planned paths (Karlshorst, Wuhletal, Wagner-Regeny-Allee) are placed at approximate positions.
 
 ## Next steps
 
+- Add U-Bahn and tram from VBB's public GTFS timetable data
 - Time-dependent routing (earliest arrival) on the stop-event table
 - Fix the remaining LLM failure modes (e.g. parse text-formatted tool calls, structured answer templates)
 - A GNN (PyTorch Geometric) predicting delay propagation along edges

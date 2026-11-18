@@ -51,6 +51,7 @@ TOOL_NAMES = [
     "search_network_knowledge",
 ]
 
+
 HIDDEN_ARGS = {"transfer_penalty_min", "exclude_modes", "min_trips"}  # internal knobs the LLM should not set
 
 
@@ -105,6 +106,7 @@ def make_llm(service: TransitService, provider: str | None = None, model: str | 
 class AgentResult:
     answer: str
     tool_calls: list[dict] = field(default_factory=list)
+    tool_results: list[dict] = field(default_factory=list)
     latency_s: float = 0.0
     steps: int = 0
 
@@ -141,9 +143,17 @@ class TransitAgent:
         answer = final.content if final else ""
         if isinstance(answer, list):  # some providers return content blocks
             answer = " ".join(b.get("text", "") for b in answer if isinstance(b, dict))
+        results = []
+        for m in msgs:
+            if isinstance(m, ToolMessage):
+                try:
+                    results.append({"name": m.name, "result": json.loads(m.content)})
+                except (TypeError, json.JSONDecodeError):
+                    results.append({"name": m.name, "result": {"error": str(m.content)}})
         return AgentResult(
             answer=str(answer).strip(),
             tool_calls=calls,
+            tool_results=results,
             latency_s=round(time.perf_counter() - t0, 3),
             steps=sum(isinstance(m, ToolMessage) for m in msgs),
         )

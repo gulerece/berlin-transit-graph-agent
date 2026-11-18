@@ -54,6 +54,19 @@ def test_api(monkeypatch):
         assert c.get("/stations/Hogwarts").status_code == 404
         a = c.post("/ask", json={"question": "What if Ostkreuz closes?"}).json()
         assert a["tool_calls"][0]["name"] == "closure_impact"
+        assert a["tool_results"][0]["result"]["station"] == "Ostkreuz"
+
+
+def test_web_page_and_network():
+    from transit_graph.api import app
+
+    with TestClient(app) as c:
+        page = c.get("/")
+        assert page.status_code == 200 and "Ask the Berlin rail network" in page.text
+        net = c.get("/network").json()
+        assert len(net["stations"]) > 100 and len(net["edges"]) > 100
+        names = {s["name"] for s in net["stations"]}
+        assert all(e["from"] in names and e["to"] in names for e in net["edges"])
 
 
 def test_mcp_server():
